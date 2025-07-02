@@ -1,4 +1,4 @@
-# AI Job Recommendation & CV Generator - Project Requirements
+# AI Job Recommendation & CV Generator
 
 ## 1. Core System Components
 
