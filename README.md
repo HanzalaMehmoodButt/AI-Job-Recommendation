@@ -222,3 +222,315 @@
 - Screen reader compatibility
 - Keyboard navigation support
 - Color contrast requirements
+
+# AI Job Recommendation System - Node.js Architecture & Database Schema
+
+## 1. System Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLIENT LAYER                             │
+├─────────────────────────────────────────────────────────────────┤
+│  React/Vue Frontend  │  Mobile App  │  Third-party Integrations │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     API GATEWAY / LOAD BALANCER                 │
+│                      (NGINX / AWS ALB)                          │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     NODE.JS APPLICATION LAYER                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│  │   Auth      │  │    User     │  │    Job      │            │
+│  │  Service    │  │  Service    │  │  Service    │            │
+│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│  │Recommendation│  │    CV       │  │  Scraping   │            │
+│  │   Engine    │  │  Generator  │  │  Service    │            │
+│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      MESSAGE QUEUE LAYER                        │
+│                    (Redis / Bull Queue)                         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      BACKGROUND WORKERS                         │
+├─────────────────────────────────────────────────────────────────┤
+│  ML Training  │  Job Scraping  │  Email Notifications  │  PDF Gen │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        DATA LAYER                               │
+├─────────────────────────────────────────────────────────────────┤
+│ PostgreSQL  │  Redis Cache  │  File Storage  │  ML Model Store  │
+│  (Primary)  │   (Session)   │   (S3/Local)   │   (TensorFlow)   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 2. Node.js Application Structure
+
+```
+src/
+├── config/
+│   ├── database.js
+│   ├── redis.js
+│   ├── auth.js
+│   └── environment.js
+├── controllers/
+│   ├── authController.js
+│   ├── userController.js
+│   ├── jobController.js
+│   ├── recommendationController.js
+│   └── cvController.js
+├── services/
+│   ├── authService.js
+│   ├── userService.js
+│   ├── jobService.js
+│   ├── recommendationService.js
+│   ├── cvService.js
+│   ├── scrapingService.js
+│   └── mlService.js
+├── models/
+│   ├── User.js
+│   ├── Job.js
+│   ├── Application.js
+│   ├── Recommendation.js
+│   └── CVTemplate.js
+├── middleware/
+│   ├── auth.js
+│   ├── validation.js
+│   ├── rateLimiting.js
+│   └── errorHandler.js
+├── routes/
+│   ├── auth.js
+│   ├── users.js
+│   ├── jobs.js
+│   ├── recommendations.js
+│   └── cv.js
+├── utils/
+│   ├── logger.js
+│   ├── helpers.js
+│   ├── validators.js
+│   └── mlUtils.js
+├── workers/
+│   ├── jobScraper.js
+│   ├── mlTrainer.js
+│   ├── emailWorker.js
+│   └── pdfGenerator.js
+└── app.js
+```
+
+## 3. Database Schema (PostgreSQL)
+
+### Users Table
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    phone VARCHAR(20),
+    location JSONB, -- {city, state, country, coordinates}
+    profile_picture_url VARCHAR(500),
+    linkedin_url VARCHAR(500),
+    github_url VARCHAR(500),
+    portfolio_url VARCHAR(500),
+    bio TEXT,
+    career_level VARCHAR(50), -- junior, mid, senior, executive
+    preferred_salary_min INTEGER,
+    preferred_salary_max INTEGER,
+    currency VARCHAR(3) DEFAULT 'USD',
+    remote_preference VARCHAR(20), -- remote, hybrid, onsite, flexible
+    willing_to_relocate BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    email_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Skills Table
+```sql
+CREATE TABLE skills (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    category VARCHAR(50), -- technical, soft, language, certification
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### User Skills Table (Many-to-Many)
+```sql
+CREATE TABLE user_skills (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    skill_id INTEGER REFERENCES skills(id) ON DELETE CASCADE,
+    proficiency_level INTEGER CHECK (proficiency_level >= 1 AND proficiency_level <= 5),
+    years_of_experience DECIMAL(3,1),
+    is_primary BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, skill_id)
+);
+```
+
+### Experience Table
+```sql
+CREATE TABLE experiences (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    company_name VARCHAR(200) NOT NULL,
+    job_title VARCHAR(200) NOT NULL,
+    employment_type VARCHAR(50), -- full-time, part-time, contract, freelance
+    location JSONB,
+    is_remote BOOLEAN DEFAULT FALSE,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_current BOOLEAN DEFAULT FALSE,
+    description TEXT,
+    achievements TEXT[],
+    technologies_used INTEGER[], -- Array of skill IDs
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Education Table
+```sql
+CREATE TABLE education (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    institution_name VARCHAR(200) NOT NULL,
+    degree VARCHAR(100),
+    field_of_study VARCHAR(100),
+    grade VARCHAR(20),
+    start_date DATE,
+    end_date DATE,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Companies Table
+```sql
+CREATE TABLE companies (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) UNIQUE NOT NULL,
+    description TEXT,
+    industry VARCHAR(100),
+    size VARCHAR(50), -- startup, small, medium, large, enterprise
+    location JSONB,
+    website VARCHAR(500),
+    logo_url VARCHAR(500),
+    culture_tags TEXT[], -- Array of culture descriptors
+    glassdoor_rating DECIMAL(2,1),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Jobs Table
+```sql
+CREATE TABLE jobs (
+    id SERIAL PRIMARY KEY,
+    external_id VARCHAR(100), -- ID from job board
+    title VARCHAR(200) NOT NULL,
+    company_id INTEGER REFERENCES companies(id),
+    company_name VARCHAR(200), -- Fallback if company not in our DB
+    description TEXT NOT NULL,
+    requirements TEXT,
+    benefits TEXT,
+    employment_type VARCHAR(50),
+    experience_level VARCHAR(50),
+    location JSONB,
+    is_remote BOOLEAN DEFAULT FALSE,
+    salary_min INTEGER,
+    salary_max INTEGER,
+    currency VARCHAR(3) DEFAULT 'USD',
+    posted_date TIMESTAMP,
+    expires_date TIMESTAMP,
+    application_url VARCHAR(500),
+    source VARCHAR(100), -- indeed, linkedin, company_website
+    is_active BOOLEAN DEFAULT TRUE,
+    view_count INTEGER DEFAULT 0,
+    application_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Job Skills Table (Many-to-Many)
+```sql
+CREATE TABLE job_skills (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    skill_id INTEGER REFERENCES skills(id) ON DELETE CASCADE,
+    is_required BOOLEAN DEFAULT TRUE,
+    importance_weight DECIMAL(3,2) DEFAULT 1.0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(job_id, skill_id)
+);
+```
+
+### Applications Table
+```sql
+CREATE TABLE applications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    status VARCHAR(50) DEFAULT 'applied', -- applied, viewed, interview, rejected, offer, accepted
+    applied_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    cv_version_id INTEGER, -- Reference to specific CV used
+    cover_letter TEXT,
+    notes TEXT,
+    interview_dates JSONB[], -- Array of interview schedules
+    feedback TEXT,
+    salary_offered INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, job_id)
+);
+```
+
+### Recommendations Table
+```sql
+CREATE TABLE recommendations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    match_score DECIMAL(5,4), -- 0.0000 to 1.0000
+    reasons JSONB, -- {"skills_match": 0.85, "location_match": 0.9, "experience_match": 0.75}
+    algorithm_version VARCHAR(20),
+    is_viewed BOOLEAN DEFAULT FALSE,
+    is_saved BOOLEAN DEFAULT FALSE,
+    is_dismissed BOOLEAN DEFAULT FALSE,
+    user_feedback INTEGER, -- 1-5 rating
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, job_id)
+);
+```
+
+### CV Templates Table
+```sql
+CREATE TABLE cv_templates (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    template_data JSONB, -- Template structure and styling
+    preview_image_url VARCHAR(500),
+  
+
+
